@@ -14,7 +14,10 @@ String key = "bxsWTWt-mn_EFcACyVvP12GNlbjwGb1F-qzsmpsuk02";
 WiFiClient client;
 BH1750 lightMeter;
 
-float threshold = 300.0;
+// Hysteresis thresholds to avoid rapid toggling
+float thresholdHigh = 320.0; // upper bound for SUNLIGHT
+float thresholdLow = 280.0;  // lower bound for DARK
+
 bool isLight = false;
 
 void setup() {
@@ -56,24 +59,30 @@ void connectWiFi() {
   Serial.println("\nConnected!");
 }
 
+// Check light state using hysteresis to prevent flapping
 void checkLight(float lux) {
-  if (lux > threshold && !isLight) {
-    sendIFTTT(lux, "SUNLIGHT");
+
+  // Switch to SUNLIGHT only when exceeding upper threshold
+  if (lux > thresholdHigh && !isLight) {
+    sendIFTTT(lux, "SUNLIGHT", thresholdHigh);
     isLight = true;
   }
 
-  if (lux <= threshold && isLight) {
-    sendIFTTT(lux, "DARK");
+  // Switch to DARK only when dropping below lower threshold
+  if (lux < thresholdLow && isLight) {
+    sendIFTTT(lux, "DARK", thresholdLow);
     isLight = false;
   }
 }
 
-void sendIFTTT(float lux, String status) {
+// Send data to IFTTT
+void sendIFTTT(float lux, String status, float thresholdValue) {
   if (client.connect(host.c_str(), 80)) {
 
     String json = "{";
     json += "\"value1\":\"" + String(lux) + "\",";
-    json += "\"value2\":\"" + status + "\"";
+    json += "\"value2\":\"" + status + "\",";
+    json += "\"value3\":\"" + String(thresholdValue) + "\"";
     json += "}";
 
     client.println("POST /trigger/" + event + "/with/key/" + key + " HTTP/1.1");
@@ -84,11 +93,10 @@ void sendIFTTT(float lux, String status) {
     client.println();
     client.println(json);
 
-    Serial.println("Notification sent");
+    delay(500); // wait server response
+    client.stop(); 
+    Serial.println("Notification sent: " + status);
   } else {
     Serial.println("Connection failed");
   }
-
-  // Always close connection after request
-  client.stop();
 }
